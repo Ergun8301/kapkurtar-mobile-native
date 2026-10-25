@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -27,15 +27,12 @@ import AuthCallbackPage from "./pages/AuthCallbackPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import MerchantForgotPasswordPage from "./pages/MerchantForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
-import ProfileCompletePage from "./pages/ProfileCompletePage";
 import MerchantDashboardPage from "./pages/MerchantDashboardPage";
 import ClientProfilePage from "./pages/ClientProfilePage";
 import ClientDashboardPage from "./pages/ClientDashboardPage";
 import UserTypeSelectionPage from "./pages/UserTypeSelectionPage";
 
 // ✅ Pages utilisateurs
-import FavoritesPage from "./pages/FavoritesPage";
-import ReviewsPage from "./pages/ReviewsPage";
 import DownloadPage from "./pages/DownloadPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
@@ -58,28 +55,26 @@ import BlogArticle9 from "./pages/BlogArticle9";
 import BlogArticle10 from "./pages/BlogArticle10";
 
 /* 🔗 Gère les deep links sur mobile natif */
+// L'URL de lancement (cold start) ne doit être traitée qu'une seule fois
+let launchUrlHandled = false;
+
 function DeepLinkHandler() {
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
     // Toujours configurer les listeners (même si on ne sait pas encore si c'est natif)
     // Le check se fait côté natif, pas besoin de vérifier isNativePlatform() ici
-    console.log('🔗 [DeepLink] Configuration des listeners...');
 
     let isHandlingDeepLink = false;
 
     const handleDeepLink = async (url: string) => {
       // Éviter les doubles traitements
       if (isHandlingDeepLink) {
-        console.log('🔗 [DeepLink] Déjà en cours de traitement, skip');
         return;
       }
       isHandlingDeepLink = true;
 
       try {
-        console.log('🔗 [DeepLink] URL reçue (raw):', url);
-
         let path = '';
         let search = '';
         let hash = '';
@@ -116,23 +111,35 @@ function DeepLinkHandler() {
           }
         }
 
-        console.log('🔗 [DeepLink] Parsed - path:', path, 'search:', search, 'hash:', hash ? 'present (tokens)' : 'empty');
-
         // Fermer le browser in-app d'abord
         try {
           await Browser.close();
-          console.log('🔗 [DeepLink] Browser fermé');
         } catch {
           // Ignorer - le browser n'était peut-être pas ouvert
         }
 
+        // 🔑 Lien de réinitialisation du mot de passe : ouvrir la session de récupération
+        // puis afficher /reset-password (et non /auth/callback)
+        if (hash && hash.includes('access_token') && (path === '/reset-password' || hash.includes('type=recovery'))) {
+          const hashParams = new URLSearchParams(hash.substring(1));
+          const accessToken = hashParams.get('access_token');
+          if (accessToken) {
+            const { error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: hashParams.get('refresh_token') || '',
+            });
+            if (error) {
+              console.error('[DeepLink] setSession (recovery) error:', error.message);
+            }
+          }
+          navigate('/reset-password', { replace: true });
+          return;
+        }
+
         // 🔐 Si le hash contient des tokens OAuth, naviguer vers /auth/callback avec les tokens
         if (hash && hash.includes('access_token')) {
-          console.log('🔗 [DeepLink] Tokens OAuth détectés, navigation vers /auth/callback...');
-
           // Utiliser navigate() au lieu de window.location.href pour éviter le rechargement
           const callbackPath = '/auth/callback' + search;
-          console.log('🔗 [DeepLink] Navigation vers:', callbackPath, 'avec hash');
 
           // Passer le hash via state car navigate() ne supporte pas les hash fragments
           navigate(callbackPath, {
@@ -144,7 +151,6 @@ function DeepLinkHandler() {
 
         // Navigation standard pour les autres deep links
         const fullPath = path + search + hash;
-        console.log('🔗 [DeepLink] Navigation vers:', fullPath);
         navigate(fullPath, { replace: true });
       } catch (error) {
         console.error('❌ [DeepLink] Erreur parsing:', error);
@@ -159,29 +165,24 @@ function DeepLinkHandler() {
     // Écouter les deep links entrants
     const setupDeepLinks = async () => {
       // Vérifier si l'app a été lancée via deep link (cold start)
-      console.log('🔗 [DeepLink] Vérification getLaunchUrl...');
       try {
         const appUrlOpen = await CapacitorApp.getLaunchUrl();
-        console.log('🔗 [DeepLink] getLaunchUrl résultat:', appUrlOpen);
-        if (appUrlOpen?.url) {
-          console.log('🔗 [DeepLink] App lancée via deep link (cold start):', appUrlOpen.url);
+        if (appUrlOpen?.url && !launchUrlHandled) {
+          launchUrlHandled = true;
           // Petit délai pour s'assurer que React Router est prêt
           setTimeout(() => handleDeepLink(appUrlOpen.url), 100);
         }
-      } catch (error) {
-        console.log('🔗 [DeepLink] getLaunchUrl non disponible (probablement web):', error);
+      } catch {
+        // getLaunchUrl non disponible (web)
       }
 
       // Écouter les deep links pendant que l'app est ouverte (warm start)
-      console.log('🔗 [DeepLink] Ajout listener appUrlOpen...');
       try {
         CapacitorApp.addListener('appUrlOpen', (event) => {
-          console.log('🔗 [DeepLink] EVENT appUrlOpen reçu:', event.url);
           handleDeepLink(event.url);
         });
-        console.log('🔗 [DeepLink] Setup terminé');
-      } catch (error) {
-        console.log('🔗 [DeepLink] addListener non disponible (probablement web):', error);
+      } catch {
+        // addListener non disponible (web)
       }
     };
 
@@ -195,10 +196,49 @@ function DeepLinkHandler() {
         // Ignorer sur web
       }
     };
-  }, [navigate, location.pathname]);
+  }, [navigate]);
 
   return null;
 }
+
+/* 🔁 CONFIGURATION DES ROUTES PAR TYPE (même logique que le web) */
+
+// Routes publiques : accessibles par TOUS (connectés ou non)
+const publicRoutes = [
+  '/legal',
+  '/blog',
+  '/contact',
+  '/about',
+  '/faq',
+  '/for-merchants',
+  '/download',
+  '/istanbul',
+  '/ankara',
+  '/izmir',
+  '/antalya',
+  '/bursa',
+];
+
+// Routes d'authentification : accessibles par tous
+const authRoutes = [
+  '/customer/auth',
+  '/merchant/auth',
+  '/forgot-password',
+  '/merchant/forgot-password',
+  '/reset-password',
+  '/auth/callback',
+];
+
+// Routes client uniquement
+const clientOnlyRoutes = [
+  '/customer/dashboard',
+  '/client/profile',
+];
+
+// Routes marchand uniquement
+const merchantOnlyRoutes = [
+  '/merchant/dashboard',
+];
 
 /* 🔁 Vérifie la session et redirige selon le rôle */
 function SessionRedirect() {
@@ -208,52 +248,66 @@ function SessionRedirect() {
 
   useEffect(() => {
     (async () => {
-      // ✅ Ne pas rediriger si on est déjà sur ces pages protégées
-      const noRedirectPaths = [
-        '/client/profile',
-        '/merchant/dashboard',
-        '/customer/dashboard',
-        '/customer/auth',
-        '/merchant/auth',
-        '/forgot-password',
-        '/merchant/forgot-password',
-        '/reset-password',
-        '/auth/callback',
-        '/profile/complete'
-      ];
-      
-      if (noRedirectPaths.includes(location.pathname)) {
+      const currentPath = location.pathname;
+
+      // 1. Pages publiques et pages auth : toujours accessibles
+      if (
+        publicRoutes.includes(currentPath) ||
+        currentPath.startsWith('/blog/') ||
+        authRoutes.includes(currentPath)
+      ) {
         setChecked(true);
         return;
       }
 
+      // 2. Utilisateur non connecté : aucune redirection
+      // (sur natif, "/" affiche UserTypeSelectionPage)
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      
+
       if (!user) {
         setChecked(true);
         return;
       }
 
+      // 3. Récupérer le rôle
       const { data, error } = await supabase
         .from("profiles")
         .select("role, first_name, last_name")
         .eq("auth_id", user.id)
         .single();
 
-      if (!error && data?.role === "merchant") {
-        nav("/merchant/dashboard");
-      } else if (!error && data?.role === "client") {
-        // ✅ Vérifier si le profil est complet AVANT de rediriger
-        if (!data.first_name || !data.last_name) {
-          // Profil incomplet → NE PAS rediriger
+      if (error || !data) {
+        setChecked(true);
+        return;
+      }
+
+      const { role, first_name, last_name } = data;
+
+      // 4. Marchands : bloquer les pages client, rediriger depuis "/"
+      if (role === "merchant") {
+        if (clientOnlyRoutes.includes(currentPath) || currentPath === "/") {
+          nav("/merchant/dashboard", { replace: true });
+          return;
+        }
+        setChecked(true);
+        return;
+      }
+
+      // 5. Clients
+      if (role === "client") {
+        // Profil incomplet : laisser passer (pour compléter le profil)
+        if (!first_name || !last_name) {
           setChecked(true);
           return;
         }
-        // Profil complet → rediriger vers offres
-        nav("/offers");
+        if (merchantOnlyRoutes.includes(currentPath) || currentPath === "/") {
+          nav("/offers", { replace: true });
+          return;
+        }
       }
+
       setChecked(true);
     })();
   }, [nav, location.pathname]);
@@ -304,12 +358,6 @@ function App() {
               <Route path="/client/profile" element={<ClientProfilePage />} />
               <Route path="/customer/dashboard" element={<ClientDashboardPage />} />
 
-              {/* ❤️ Favoris */}
-              <Route path="/favorites" element={<FavoritesPage />} />
-
-              {/* ⭐ Avis */}
-              <Route path="/reviews" element={<ReviewsPage />} />
-
               {/* 🔐 Authentification */}
               <Route path="/customer/auth" element={<CustomerAuthPage />} />
               <Route path="/merchant/auth" element={<MerchantAuthPage />} />
@@ -317,9 +365,6 @@ function App() {
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/merchant/forgot-password" element={<MerchantForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
-
-              {/* 👤 Compléter profil */}
-              <Route path="/profile/complete" element={<ProfileCompletePage />} />
 
               {/* 🏪 Tableau de bord marchand */}
               <Route path="/merchant/dashboard" element={<MerchantDashboardPage />} />
@@ -356,6 +401,9 @@ function App() {
                 path="/customer/teaser"
                 element={<Navigate to="/offers" replace />}
               />
+              <Route path="/favorites" element={<Navigate to="/offers" replace />} />
+              <Route path="/reviews" element={<Navigate to="/offers" replace />} />
+              <Route path="/profile/complete" element={<Navigate to="/offers" replace />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFoundPage />} />

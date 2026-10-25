@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import { toTurkishError } from "../lib/errorMessages";
 
 const AuthCallbackPage = () => {
   const navigate = useNavigate();
@@ -25,9 +26,6 @@ const AuthCallbackPage = () => {
         const effectiveRole = urlRole || pendingRole;
         const flowToken = urlFlowToken || pendingFlowToken;
 
-        console.log("🔁 OAuth callback → rôle URL:", urlRole, "| localStorage:", pendingRole, "| effectif:", effectiveRole);
-        console.log("🔁 OAuth callback → flow_token URL:", urlFlowToken, "| localStorage:", pendingFlowToken, "| effectif:", flowToken);
-
         // 🧹 Nettoyer le localStorage après lecture
         localStorage.removeItem('pending_auth_role');
         localStorage.removeItem('pending_flow_token');
@@ -36,21 +34,14 @@ const AuthCallbackPage = () => {
         // Le hash peut venir de window.location.hash OU de location.state (navigation depuis DeepLinkHandler)
         const stateHash = (location.state as { oauthHash?: string } | null)?.oauthHash;
         const hash = stateHash || window.location.hash;
-        console.log("🔁 OAuth callback → hash présent:", !!hash && hash.includes('access_token'), "| source:", stateHash ? "state" : "window");
 
         if (hash && hash.includes('access_token')) {
-          console.log("🔐 Tokens détectés dans le hash, extraction...");
-
           // Extraire les tokens du hash
           const hashParams = new URLSearchParams(hash.substring(1));
           const accessToken = hashParams.get('access_token');
           const refreshToken = hashParams.get('refresh_token');
 
-          console.log("🔐 access_token présent:", !!accessToken);
-          console.log("🔐 refresh_token présent:", !!refreshToken);
-
           if (accessToken) {
-            console.log("🔐 Appel setSession...");
             const { error: sessionError } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken || '',
@@ -58,11 +49,10 @@ const AuthCallbackPage = () => {
 
             if (sessionError) {
               console.error("🔐 Erreur setSession:", sessionError.message);
-              setError("Erreur lors de l'établissement de la session: " + sessionError.message);
+              setError(toTurkishError(sessionError, "Oturum başlatılamadı. Lütfen tekrar giriş yapın."));
               setLoading(false);
               return;
             }
-            console.log("🔐 ✅ Session établie via setSession");
 
             // Nettoyer le hash de l'URL pour éviter les problèmes
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -77,18 +67,16 @@ const AuthCallbackPage = () => {
             session = data.session;
             break;
           }
-          console.log("🔁 Attente session... tentative", i + 1);
           await new Promise((r) => setTimeout(r, 500));
         }
 
         if (!session) {
-          setError("Impossible de récupérer la session après OAuth");
+          setError("Oturum alınamadı. Lütfen tekrar giriş yapın.");
           setLoading(false);
           return;
         }
 
         const user = session.user;
-        console.log("✅ Session récupérée pour:", user.email);
 
         // 1️⃣ Déterminer le rôle RÉEL (priorité: flow_states > URL/localStorage > défaut)
         let actualRole = effectiveRole || "client";
@@ -105,7 +93,6 @@ const AuthCallbackPage = () => {
             console.warn("⚠️ Erreur récupération flow_state:", flowFetchError.message);
           } else if (flowData?.desired_role) {
             actualRole = flowData.desired_role;
-            console.log("✅ Rôle récupéré depuis flow_states:", actualRole);
           }
 
           // 🔹 Marquer le flow_state comme utilisé
@@ -115,56 +102,62 @@ const AuthCallbackPage = () => {
             .eq("token", flowToken);
         }
 
-        console.log("🎯 Rôle final utilisé:", actualRole);
-
-        // 2️⃣ Mise à jour / création du profil avec le BON rôle
-        const { error: profileError } = await supabase.from("profiles").upsert(
-          {
-            auth_id: user.id,
-            email: user.email,
-            role: actualRole,
-          },
-          { onConflict: "auth_id" }
-        );
-
-        if (profileError) {
-          console.warn("⚠️ Erreur profil:", profileError.message);
-        } else {
-          console.log("✅ Profil créé/mis à jour avec rôle:", actualRole);
-        }
-
-        // 3️⃣ Vérifier si le profil est complet (pour les clients)
-        const { data: profileData, error: fetchError } = await supabase
+        // 2️⃣ Création du profil uniquement s'il n'existe pas.
+        // Un profil existant garde TOUJOURS son rôle (un marchand qui utilise
+        // le bouton Google client reste marchand, et inversement).
+        const { data: existingProfile } = await supabase
           .from("profiles")
           .select("role, first_name, last_name")
           .eq("auth_id", user.id)
-          .single();
+          .maybeSingle();
 
-        if (fetchError) {
-          console.warn("⚠️ Impossible de récupérer le profil:", fetchError.message);
-        }
+        let finalRole: string = actualRole;
+        let firstName: string | null = null;
+        let lastName: string | null = null;
 
-        // 4️⃣ Redirection selon rôle ET complétude du profil
-        setIsRedirecting(true);
-        if (actualRole === "merchant") {
-          console.log("🏪 Redirection marchand → /merchant/dashboard");
-          navigate("/merchant/dashboard");
-        } else if (actualRole === "client") {
-          // ✅ Vérifier si le profil client est complet
-          if (!profileData?.first_name || !profileData?.last_name) {
-            console.log("⚠️ Profil incomplet → redirection vers /customer/auth");
-            navigate("/customer/auth");
+        if (existingProfile) {
+          firstName = existingProfile.first_name;
+          lastName = existingProfile.last_name;
+          if (existingProfile.role) {
+            finalRole = existingProfile.role;
           } else {
-            console.log("✅ Profil complet → redirection vers /offers");
-            navigate("/offers");
+            // Profil créé sans rôle (ex. par ensure_profile_exists) → on le complète
+            const { error: updateError } = await supabase
+              .from("profiles")
+              .update({ role: actualRole })
+              .eq("auth_id", user.id)
+              .is("role", null);
+            if (updateError) {
+              console.warn("Profil: rôle non enregistré:", updateError.message);
+            }
           }
         } else {
-          // Fallback
-          navigate("/offers");
+          const { error: insertError } = await supabase
+            .from("profiles")
+            .insert({
+              auth_id: user.id,
+              email: user.email,
+              role: actualRole,
+            });
+
+          if (insertError) {
+            console.warn("Profil non créé:", insertError.message);
+          }
+        }
+
+        // 3️⃣ Redirection selon le rôle réel ET la complétude du profil
+        setIsRedirecting(true);
+        if (finalRole === "merchant") {
+          navigate("/merchant/dashboard", { replace: true });
+        } else if (!firstName || !lastName) {
+          // Profil client incomplet → la page d'auth affichera le formulaire de profil
+          navigate("/customer/auth", { replace: true });
+        } else {
+          navigate("/offers", { replace: true });
         }
       } catch (err) {
         console.error("OAuth callback error:", err);
-        setError((err as Error).message);
+        setError(toTurkishError(err, "Giriş tamamlanamadı. Lütfen tekrar deneyin."));
       } finally {
         setLoading(false);
       }
@@ -179,7 +172,7 @@ const AuthCallbackPage = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3A6932] mx-auto mb-4"></div>
           <p className="text-gray-600">
-            {isRedirecting ? "Redirection en cours..." : "Finalisation de la connexion..."}
+            {isRedirecting ? "Yönlendiriliyor..." : "Giriş tamamlanıyor..."}
           </p>
         </div>
       </div>
@@ -194,13 +187,13 @@ const AuthCallbackPage = () => {
             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-red-600 text-2xl">✕</span>
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Erreur de connexion</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Giriş hatası</h2>
             <p className="text-gray-600 mb-6">{error}</p>
             <button
               onClick={() => navigate("/")}
               className="w-full bg-[#3A6932] text-white py-3 rounded-xl font-semibold hover:bg-[#2d5226] transition-colors"
             >
-              Retour à l'accueil
+              Ana Sayfaya Dön
             </button>
           </div>
         </div>

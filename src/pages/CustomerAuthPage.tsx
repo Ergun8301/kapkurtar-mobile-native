@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, ArrowLeft } from 'lucide-react';
-import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+import { getNativeGoogleIdToken } from '../lib/googleNativeAuth';
 import { supabase } from '../lib/supabaseClient';
 import { useAuthFlow } from '../hooks/useAuthFlow';
 import { getRedirectUrl, isNativePlatform } from '../lib/appConfig';
 import ProfileCompletionModal from '../components/ProfileCompletionModal';
+import { toTurkishError } from '../lib/errorMessages';
 
 type AuthMode = 'login' | 'register';
 
@@ -104,7 +105,7 @@ const CustomerAuthPage = () => {
         }
       }
     } catch (err) {
-      setError((err as Error).message);
+      setError(toTurkishError(err));
     } finally {
       setIsLoading(false);
     }
@@ -117,31 +118,15 @@ const CustomerAuthPage = () => {
 
     try {
       const isNative = isNativePlatform();
-      console.log('🔍 [OAuth Debug] ========== GOOGLE AUTH START ==========');
-      console.log('🔍 [OAuth Debug] isNativePlatform():', isNative);
 
       if (isNative) {
-        // 📱 Mode NATIVE: Utiliser Google Auth plugin (Google Play Services)
-        console.log('🔍 [OAuth Debug] Mode NATIVE - GoogleAuth.signIn()');
+        // 📱 Mode NATIVE: connexion Google native
 
-        // Initialiser le plugin Google Auth
-        await GoogleAuth.initialize({
-          clientId: '545174199519-ld327isies201hffeb16ae03hidn0fre.apps.googleusercontent.com',
-          scopes: ['profile', 'email'],
-          grantOfflineAccess: true,
-        });
-        console.log('🔍 [OAuth Debug] GoogleAuth.initialize() OK');
-
-        // Connexion Google native via Google Play Services
-        const googleUser = await GoogleAuth.signIn();
-        console.log('🔍 [OAuth Debug] GoogleAuth.signIn() OK:', googleUser.email);
-
-        // Récupérer l'idToken pour Supabase
-        const idToken = googleUser.authentication.idToken;
+        // Connexion Google native (Credential Manager)
+        const idToken = await getNativeGoogleIdToken();
         if (!idToken) {
-          throw new Error('Impossible de récupérer le token Google');
+          throw new Error('Google kimlik doğrulaması alınamadı. Lütfen tekrar deneyin.');
         }
-        console.log('🔍 [OAuth Debug] idToken obtenu, longueur:', idToken.length);
 
         // Authentifier avec Supabase via idToken
         const { data, error } = await supabase.auth.signInWithIdToken({
@@ -150,33 +135,44 @@ const CustomerAuthPage = () => {
         });
 
         if (error) {
-          console.error('🔍 [OAuth Debug] Erreur signInWithIdToken:', error);
           throw error;
         }
 
         if (data.user) {
-          console.log('✅ [OAuth Debug] Supabase signInWithIdToken OK:', data.user.email);
+          // Profil existant : ne JAMAIS écraser son rôle (un marchand reste marchand).
+          // Profil absent : le créer avec le rôle client.
+          const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('auth_id', data.user.id)
+            .maybeSingle();
 
-          // Créer/mettre à jour le profil avec le rôle client
-          const { error: profileError } = await supabase.from('profiles').upsert(
-            {
+          if (!existingProfile) {
+            const { error: profileError } = await supabase.from('profiles').insert({
               auth_id: data.user.id,
               email: data.user.email,
               role: 'client',
-            },
-            { onConflict: 'auth_id' }
-          );
-
-          if (profileError) {
-            console.warn('⚠️ [OAuth Debug] Erreur profil:', profileError.message);
+            });
+            if (profileError) {
+              console.warn('Profil non créé:', profileError.message);
+            }
+          } else if (!existingProfile.role) {
+            // Profil créé sans rôle (ex. par ensure_profile_exists) → on le complète
+            const { error: profileError } = await supabase
+              .from('profiles')
+              .update({ role: 'client' })
+              .eq('auth_id', data.user.id)
+              .is('role', null);
+            if (profileError) {
+              console.warn('Profil: rôle non enregistré:', profileError.message);
+            }
           }
 
           await refetchProfile();
-          // useEffect will handle redirection and profile completion check
+          // useEffect gère la redirection selon le rôle réel (marchand → dashboard)
         }
       } else {
         // 🌐 Web : comportement OAuth standard
-        console.log('🔍 [OAuth Debug] Mode WEB - flow OAuth standard');
         const { error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
@@ -186,8 +182,8 @@ const CustomerAuthPage = () => {
         if (error) throw error;
       }
     } catch (err) {
-      console.error('🔍 [OAuth Debug] ERREUR:', err);
-      setError((err as Error).message);
+      console.error('Google sign-in error:', err);
+      setError(toTurkishError(err, 'Google ile giriş yapılamadı. Lütfen tekrar deneyin.'));
     } finally {
       setIsLoading(false);
     }
@@ -235,7 +231,7 @@ const CustomerAuthPage = () => {
 
             <div className="text-center mb-4">
               <h1 className="text-2xl font-bold text-gray-900 mb-1">
-                {mode === 'login' ? 'Hoş Geldiniz' : 'Hesap Oluştur'}
+                {mode === 'login' ? 'Hoş Geldiniz' : 'KapKurtar\'a Katılın'}
               </h1>
               <p className="text-gray-600 text-sm">
                 {mode === 'login'

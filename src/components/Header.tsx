@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Menu,
@@ -9,7 +9,6 @@ import {
   LogOut,
   ArrowRight,
   Store,
-  Bell,
   Package,
   Download,
 } from "lucide-react";
@@ -17,7 +16,6 @@ import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabaseClient";
 import { NotificationBell } from "./NotificationBell";
 import { logoutUser } from "../lib/logout";
-import { useAddProduct } from "../contexts/AddProductContext";
 import DownloadAppModal from "./DownloadAppModal";
 import { Capacitor } from "@capacitor/core";
 import { StatusBar, Style } from "@capacitor/status-bar";
@@ -26,12 +24,11 @@ const Header = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, loading } = useAuth();
-  const { openAddProductModal } = useAddProduct();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMerchant, setIsMerchant] = useState<boolean | null>(null);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
-  const [isNative, setIsNative] = useState(false);
+  const [isNative, setIsNative] = useState(() => Capacitor.isNativePlatform());
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [lastCheckedUserId, setLastCheckedUserId] = useState<string | null>(null);
 
@@ -121,7 +118,7 @@ const Header = () => {
     setIsUserMenuOpen(false);
   };
 
-  const getUserDisplayName = () => user?.email?.split("@")[0] || "User";
+  const getUserDisplayName = () => user?.email?.split("@")[0] || "Kullanıcı";
 
   const getUserInitials = () => {
     const name = getUserDisplayName();
@@ -156,7 +153,7 @@ const Header = () => {
         <div className={`flex items-center h-16 ${isOnAuthPage && isNative ? 'justify-center' : 'justify-between'}`}>
           <a href="/" className="flex items-center space-x-3">
             <img
-              src="https://zhabjdyzawffsmvziojl.supabase.co/storage/v1/object/public/logos/KK%20fond%20vert%20(6).png"
+              src="/images/logo-header.webp"
               alt="KapKurtar"
               className="h-12 w-auto"
             />
@@ -170,13 +167,15 @@ const Header = () => {
                     {item.name}
                   </a>
                 ))}
-                <button
-                  onClick={() => setShowDownloadModal(true)}
-                  className="bg-[#00A690] text-white hover:bg-[#F75C00] px-4 py-2 rounded-md text-sm font-medium transition-colors duration-300 border border-white/20 flex items-center space-x-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Uygulamayı İndir</span>
-                </button>
+                {!isNative && (
+                  <button
+                    onClick={() => setShowDownloadModal(true)}
+                    className="bg-[#00A690] text-white hover:bg-[#F75C00] px-4 py-2 rounded-md text-sm font-medium transition-colors duration-300 border border-white/20 flex items-center space-x-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Uygulamayı İndir</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -276,6 +275,17 @@ const Header = () => {
                 </div>
               )
             )}
+            {/* Bouton "İndir" compact (web mobile uniquement, jamais dans l'app native) */}
+            {!isNative && (
+              <button
+                onClick={() => setShowDownloadModal(true)}
+                className="md:hidden bg-[#00A690] text-white hover:bg-[#F75C00] px-2 py-2 rounded-md text-sm font-medium transition-colors duration-300 border border-white/20 flex items-center space-x-1"
+                aria-label="Uygulamayı İndir"
+              >
+                <Download className="w-4 h-4" />
+                <span>İndir</span>
+              </button>
+            )}
             {/* Bouton hamburger visible uniquement sur web mobile (pas sur natif) */}
             {!isNative && (
               <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="md:hidden p-2 rounded-md text-[#FFFFF0] hover:text-white transition-colors duration-300">
@@ -336,11 +346,13 @@ const Header = () => {
         </div>
       )}
 
-      {/* Download App Modal */}
-      <DownloadAppModal
-        isOpen={showDownloadModal}
-        onClose={() => setShowDownloadModal(false)}
-      />
+      {/* Download App Modal (inutile dans l'app native) */}
+      {!isNative && (
+        <DownloadAppModal
+          isOpen={showDownloadModal}
+          onClose={() => setShowDownloadModal(false)}
+        />
+      )}
     </header>
   );
 };

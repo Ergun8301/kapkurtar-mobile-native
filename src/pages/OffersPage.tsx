@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import mapboxgl, { Map, Marker } from "mapbox-gl";
 import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder";
@@ -6,7 +6,8 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
 import { Geolocation } from "@capacitor/geolocation";
 import { NativeSettings, AndroidSettings, IOSSettings } from "capacitor-native-settings";
-import { Clock, Search, MapPin, Globe, Loader2 } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
+import { Search, MapPin, Globe, Loader2 } from "lucide-react";
 
 // Cordova plugin for native GPS enable popup (Android)
 declare global {
@@ -32,6 +33,8 @@ import { useAuth } from "../hooks/useAuth";
 import { OfferDetailsModal } from "../components/OfferDetailsModal";
 import { MerchantBottomSheet } from "../components/MerchantBottomSheet";
 import { useClientNotifications } from "../hooks/useClientNotifications";
+import { formatTL, toTurkishError } from "../lib/errorMessages";
+import { GOOGLE_PLAY_URL } from "../lib/appLinks";
 
 type Offer = {
   offer_id: string;
@@ -62,6 +65,16 @@ const MAP_STYLE = "mapbox://styles/kilicergun01/cmh4k0xk6008i01qt4f8p1mas";
 // 🔧 FIX : Centre de la Turquie (au lieu d'Istanbul) pour meilleure UX
 const DEFAULT_LOCATION: [number, number] = [35.2433, 38.9637]; // Centre Turquie
 const DEFAULT_ZOOM = 6; // Zoom pour voir toute la Turquie
+
+// Valeurs factices écrites par défaut en base (ne pas afficher)
+const PLACEHOLDER_VALUES = ["à définir", "position gps", "gps konumu", "belirtilmemiş"];
+const cleanPart = (value?: string | null) => {
+  const v = (value || "").trim();
+  return v && !PLACEHOLDER_VALUES.includes(v.toLowerCase()) ? v : "";
+};
+
+const MERCHANT_DEFAULT_LOGO = "/images/merchant-default.webp";
+const SMALL_SCREEN_MAX_WIDTH = 767;
 
 const customMapboxCSS = `
   .mapboxgl-ctrl-geocoder input:focus {
@@ -147,6 +160,15 @@ export default function OffersPage() {
   const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>(null);
   const [merchantOffers, setMerchantOffers] = useState<Offer[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [offersLoading, setOffersLoading] = useState(true);
+  const [offersError, setOffersError] = useState<string | null>(null);
+  const fetchRequestRef = useRef(0);
+  const isNative = Capacitor.isNativePlatform();
+  // Application native : pas d'invitation à télécharger l'application
+  const showDownloadHint = !isNative;
+  const [isSmallScreen, setIsSmallScreen] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= SMALL_SCREEN_MAX_WIDTH
+  );
   const [searchAddress, setSearchAddress] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ place_name: string; center: [number, number] }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -213,13 +235,16 @@ export default function OffersPage() {
     const styleTag = document.createElement("style");
     styleTag.innerHTML = customMapboxCSS;
     document.head.appendChild(styleTag);
-    return () => document.head.removeChild(styleTag);
+    return () => {
+      document.head.removeChild(styleTag);
+    };
   }, []);
 
-  // Debug: vérifier que le plugin Geolocation est disponible
+  // Téléphone : la liste s'affiche sous la carte (cartes compactes)
   useEffect(() => {
-    console.log("🔍 Capacitor Geolocation plugin available:", !!Geolocation);
-    console.log("🔍 Geolocation methods:", Object.keys(Geolocation));
+    const onResize = () => setIsSmallScreen(window.innerWidth <= SMALL_SCREEN_MAX_WIDTH);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   useEffect(() => {
@@ -244,8 +269,6 @@ export default function OffersPage() {
           console.error("Erreur lors de la récupération du profil client :", error);
         } else if (profile) {
           setClientId(profile.id);
-        } else {
-          console.warn("Aucun profil client trouvé pour cet utilisateur.");
         }
       } catch (error) {
         console.error("Erreur lors de la récupération du profil client :", error);
@@ -261,14 +284,11 @@ export default function OffersPage() {
     if (!clientId || isGeolocating || hasGeolocated) return;
 
     const geolocateClient = async () => {
-      console.log("=== AUTO GEOLOCATION START ===");
       setIsGeolocating(true);
 
       try {
         // Demander la permission via le plugin Capacitor
-        console.log("Requesting geolocation permissions...");
         const permission = await Geolocation.requestPermissions();
-        console.log("Permission result:", JSON.stringify(permission));
 
         const hasPermission = permission.location === 'granted' || permission.coarseLocation === 'granted';
 
@@ -288,8 +308,6 @@ export default function OffersPage() {
           return;
         }
 
-        console.log("Permission granted, getting position...");
-
         // Obtenir la position via le plugin Capacitor
         const position = await Geolocation.getCurrentPosition({
           enableHighAccuracy: true,
@@ -297,7 +315,6 @@ export default function OffersPage() {
         });
 
         const { latitude, longitude } = position.coords;
-        console.log("Position received - lat:", latitude, "lng:", longitude);
 
         if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
           console.error("Invalid coordinates received");
@@ -329,9 +346,6 @@ export default function OffersPage() {
             essential: true,
           });
         }
-
-        console.log("=== AUTO GEOLOCATION SUCCESS ===");
-
       } catch (error) {
         console.error("=== AUTO GEOLOCATION ERROR ===", error);
         // Fallback : utiliser la position par défaut
@@ -379,12 +393,12 @@ export default function OffersPage() {
       accessToken: mapboxgl.accessToken,
       mapboxgl,
       marker: false,
-      placeholder: "Rechercher une adresse ou un lieu...",
-      language: "fr",
+      placeholder: "Adres veya yer ara...",
+      language: "tr",
     });
     map.addControl(geocoder);
 
-    geocoder.on("result", (e) => {
+    geocoder.on("result", (e: { result: { center: [number, number] } }) => {
       const [lng, lat] = e.result.center;
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
       setCenter([lng, lat]);
@@ -428,8 +442,9 @@ export default function OffersPage() {
         paint: { "fill-color": "#22c55e", "fill-opacity": 0.15 },
       });
 
-      const outerPolygon = {
+      const outerPolygon: GeoJSON.Feature<GeoJSON.Polygon> = {
         type: "Feature",
+        properties: {},
         geometry: {
           type: "Polygon",
           coordinates: [
@@ -475,9 +490,13 @@ export default function OffersPage() {
   useEffect(() => {
     const fetchOffers = async () => {
       if (!center || !Number.isFinite(center[0]) || !Number.isFinite(center[1])) {
-        console.warn("🧭 fetchOffers skipped: invalid center", center);
         return;
       }
+
+      // Ignorer les réponses des requêtes devenues obsolètes
+      const requestId = ++fetchRequestRef.current;
+      setOffersLoading(true);
+      setOffersError(null);
 
       try {
         let data, error;
@@ -511,16 +530,24 @@ export default function OffersPage() {
           }
         }
 
-        if (error) {
-          console.error("❌ Erreur Supabase:", error.message);
-        } else {
-          console.log("✅ Données reçues depuis Supabase:", data);
-        }
+        if (requestId !== fetchRequestRef.current) return;
 
-        setOffers(data || []);
+        if (error) {
+          console.error("Teklifler yüklenemedi:", error.message);
+          setOffersError(toTurkishError(error, "Teklifler yüklenemedi. Lütfen tekrar deneyin."));
+          setOffers([]);
+        } else {
+          setOffers(data || []);
+        }
       } catch (error) {
-        console.error("❌ Erreur lors de la récupération des offres:", error);
+        if (requestId !== fetchRequestRef.current) return;
+        console.error("Teklifler yüklenemedi:", error);
+        setOffersError(toTurkishError(error, "Teklifler yüklenemedi. Lütfen tekrar deneyin."));
         setOffers([]);
+      } finally {
+        if (requestId === fetchRequestRef.current) {
+          setOffersLoading(false);
+        }
       }
     };
 
@@ -546,8 +573,6 @@ export default function OffersPage() {
 
           // Si notification d'offre, recharger la liste
           if (notification.type === 'offer' || notification.type === 'offer_nearby') {
-            console.log('🔔 Nouvelle offre → Refresh automatique');
-
             const fetchOffersRefresh = async () => {
               try {
                 let data, error;
@@ -593,14 +618,13 @@ export default function OffersPage() {
     const offerId = searchParams.get('offer_id');
     const notificationId = searchParams.get('notification_id');
 
-    if (!offerId || !mapRef.current) return;
+    if (!offerId || !mapRef.current || offersLoading) return;
 
     // Chercher d'abord dans la liste locale
-    let targetOffer = offers.find(o => o.offer_id === offerId);
+    const targetOffer = offers.find(o => o.offer_id === offerId);
 
     if (targetOffer) {
       // ✅ Offre trouvée dans la liste locale → afficher
-      console.log('🎯 Centrage sur offre via notification:', targetOffer.title);
 
       if (Number.isFinite(targetOffer.offer_lng) && Number.isFinite(targetOffer.offer_lat)) {
         mapRef.current.flyTo({
@@ -611,18 +635,20 @@ export default function OffersPage() {
         });
 
         setTimeout(() => {
-          setSelectedOffer(targetOffer!);
+          setSelectedOffer(targetOffer);
           setSearchParams({}, { replace: true });
         }, 1600);
+      } else {
+        setSelectedOffer(targetOffer);
+        setSearchParams({}, { replace: true });
       }
-    } else if (offers.length > 0) {
+    } else {
       // ❌ Offre NON trouvée et les offres sont chargées → vérifier si elle existe dans la DB
       (async () => {
-        console.log('🔍 Offre non trouvée dans la liste locale, vérification dans la DB...');
 
         const { data: offerData, error } = await supabase
           .from('offers')
-          .select('id, is_active, expired_at, quantity')
+          .select('id, is_active, expired_at, available_until, quantity')
           .eq('id', offerId)
           .maybeSingle();
 
@@ -634,10 +660,10 @@ export default function OffersPage() {
         const isExpiredOrUnavailable = !offerData ||
           !offerData.is_active ||
           (offerData.expired_at && new Date(offerData.expired_at) < new Date()) ||
+          (offerData.available_until && new Date(offerData.available_until) < new Date()) ||
           (offerData.quantity !== null && offerData.quantity <= 0);
 
         if (isExpiredOrUnavailable) {
-          console.log('😢 Offre expirée ou indisponible');
 
           // Afficher le toast style "Too Good To Go"
           setToast({
@@ -651,20 +677,21 @@ export default function OffersPage() {
               .from('notifications')
               .delete()
               .eq('id', notificationId);
-            console.log('🗑️ Notification supprimée:', notificationId);
           }
 
           // Nettoyer l'URL
           setSearchParams({}, { replace: true });
+        } else if (viewMode !== "all") {
+          // L'offre existe mais hors du rayon actuel → afficher toutes les offres
+          handleViewModeChange("all");
         } else {
-          // L'offre existe mais n'est pas dans le rayon actuel → juste nettoyer l'URL
-          console.log('⚠️ Offre existe mais hors du rayon actuel');
           setSearchParams({}, { replace: true });
         }
       })();
     }
-    // Si offers.length === 0, on attend que les offres soient chargées (le useEffect se re-exécutera)
-  }, [searchParams, offers]);
+    // Tant que les offres se chargent, on attend (le useEffect se re-exécutera)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, offers, offersLoading]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -696,10 +723,10 @@ export default function OffersPage() {
       el.style.justifyContent = "center";
 
       if (offer.merchant_logo_url) {
-  el.innerHTML = `<img src="${offer.merchant_logo_url}" style="width:100%;height:100%;object-fit:cover;" crossorigin="anonymous" onerror="this.onerror=null; this.src='https://zhabjdyzawffsmvziojl.supabase.co/storage/v1/object/public/logos/FAVICON%20MINI%20rond%20fond%20vert.png';" />`;
-} else {
-  el.innerHTML = `<img src="https://zhabjdyzawffsmvziojl.supabase.co/storage/v1/object/public/logos/FAVICON%20MINI%20rond%20fond%20vert.png" style="width:100%;height:100%;object-fit:cover;" crossorigin="anonymous" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=font-size:24px>🏪</span>';" />`;
-}
+        el.innerHTML = `<img src="${offer.merchant_logo_url}" style="width:100%;height:100%;object-fit:cover;" crossorigin="anonymous" onerror="this.onerror=null; this.src='${MERCHANT_DEFAULT_LOGO}';" />`;
+      } else {
+        el.innerHTML = `<img src="${MERCHANT_DEFAULT_LOGO}" style="width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=font-size:24px>🏪</span>';" />`;
+      }
 
       el.addEventListener('click', () => {
         const merchantId = offer.merchant_id || offer.merchant_name;
@@ -763,16 +790,12 @@ export default function OffersPage() {
       const locationAccuracy = window.cordova?.plugins?.locationAccuracy;
 
       if (!locationAccuracy) {
-        console.log("cordova-plugin-request-location-accuracy not available");
         resolve(false);
         return;
       }
 
-      console.log("Requesting location accuracy via native popup...");
-
       locationAccuracy.request(
-        (success) => {
-          console.log("Location accuracy request SUCCESS:", success);
+        () => {
           // SUCCESS_SETTINGS_SATISFIED or SUCCESS_USER_AGREED
           resolve(true);
         },
@@ -789,28 +812,31 @@ export default function OffersPage() {
   // 📍 Helper: Open native location settings
   const openLocationSettings = async () => {
     try {
-      console.log("Opening native location settings...");
       await NativeSettings.open({
         optionAndroid: AndroidSettings.Location,
         optionIOS: IOSSettings.LocationServices,
       });
     } catch (e) {
       console.warn("Failed to open native settings:", e);
-      // Fallback: alert message
-      alert("Lütfen GPS'i açın");
+      setToast({ message: "Lütfen cihazınızın ayarlarından konumu (GPS) açın.", type: 'error' });
     }
+  };
+
+  // 📍 Helper: expliquer le problème avant d'ouvrir les réglages
+  const explainAndOpenSettings = (message: string) => {
+    setToast({ message, type: 'warning' });
+    setTimeout(() => {
+      openLocationSettings();
+    }, 2500);
   };
 
   // 📍 Fonction de géolocalisation pour le bouton Yakında (utilise Capacitor plugin)
   const handleGeolocate = async () => {
-    console.log("=== GEOLOCATION START ===");
     setIsGeolocating(true);
 
     try {
       // Demander la permission via le plugin Capacitor (affiche la popup si nécessaire)
-      console.log("Requesting permissions...");
       await Geolocation.requestPermissions();
-      console.log("Permission request completed, attempting to get position...");
 
       // Toujours essayer d'obtenir la position après la demande de permission
       // (le résultat de requestPermissions peut ne pas être fiable immédiatement)
@@ -820,12 +846,8 @@ export default function OffersPage() {
           timeout: 10000,
         });
 
-        console.log("Position received:", JSON.stringify(position.coords));
-
         const lng = position.coords.longitude;
         const lat = position.coords.latitude;
-
-        console.log("Coordinates - lng:", lng, "lat:", lat);
 
         if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
           console.error("Invalid coordinates!");
@@ -834,13 +856,11 @@ export default function OffersPage() {
         }
 
         // Mettre à jour la position et centrer la carte
-        console.log("Updating state: userLocation, center, viewMode...");
         setUserLocation([lng, lat]);
         setCenter([lng, lat]);
         setViewMode("nearby");
 
         if (mapRef.current) {
-          console.log("Flying to position...");
           mapRef.current.flyTo({
             center: [lng, lat],
             zoom: 13,
@@ -851,9 +871,6 @@ export default function OffersPage() {
         // Effacer le champ de recherche
         const input = document.querySelector(".mapboxgl-ctrl-geocoder input") as HTMLInputElement;
         if (input) input.value = "";
-
-        console.log("=== GEOLOCATION SUCCESS ===");
-
       } catch (positionError: any) {
         console.error("=== POSITION ERROR ===", positionError);
 
@@ -862,17 +879,16 @@ export default function OffersPage() {
         const hasPermission = currentPermission.location === 'granted' || currentPermission.coarseLocation === 'granted';
 
         if (!hasPermission) {
-          // Permission refusée → Ouvrir les paramètres
-          console.log("Permission denied, opening settings...");
-          await openLocationSettings();
+          // Permission refusée → expliquer puis ouvrir les paramètres
+          explainAndOpenSettings(
+            "Konum izni verilmedi. Yakındaki teklifleri görmek için ayarlardan KapKurtar'a konum izni verin."
+          );
         } else {
           // Permission OK mais GPS désactivé → Essayer la popup native Android
-          console.log("GPS disabled, trying native popup...");
           const gpsEnabled = await requestLocationAccuracy();
 
           if (gpsEnabled) {
             // GPS activé via la popup → Réessayer d'obtenir la position
-            console.log("GPS enabled via popup, retrying position...");
             try {
               const position = await Geolocation.getCurrentPosition({
                 enableHighAccuracy: true,
@@ -898,26 +914,22 @@ export default function OffersPage() {
                 const input = document.querySelector(".mapboxgl-ctrl-geocoder input") as HTMLInputElement;
                 if (input) input.value = "";
 
-                console.log("=== GEOLOCATION SUCCESS (after GPS enable) ===");
               }
             } catch (retryError) {
               console.error("Position error after GPS enable:", retryError);
-              await openLocationSettings();
+              setToast({ message: "Konumunuz alınamadı. Lütfen tekrar deneyin.", type: 'error' });
             }
           } else {
             // L'utilisateur a refusé ou la popup native n'est pas disponible
-            console.log("User refused or popup not available, opening settings...");
-            await openLocationSettings();
+            explainAndOpenSettings("Konumunuz alınamadı. Lütfen cihazınızın konumunu (GPS) açın.");
           }
         }
       }
-
     } catch (error) {
       console.error("=== GEOLOCATION ERROR ===", error);
-      // Erreur générale → Ouvrir les paramètres
-      await openLocationSettings();
+      // Erreur générale (souvent : services de localisation désactivés)
+      explainAndOpenSettings("Konumunuz alınamadı. Lütfen cihazınızın konumunu (GPS) açın.");
     } finally {
-      console.log("=== GEOLOCATION END ===");
       setIsGeolocating(false);
     }
   };
@@ -1015,21 +1027,20 @@ export default function OffersPage() {
           });
         }
       } else {
-        alert("Adres bulunamadı. Lütfen farklı bir adres deneyin.\n\n(Address not found. Please try a different address.)");
+        setToast({ message: "Adres bulunamadı. Lütfen farklı bir adres deneyin.", type: 'error' });
       }
     } catch (error) {
       console.error("Adres arama hatası:", error);
-      alert("Adres arama hatası. Lütfen tekrar deneyin.");
+      setToast({ message: "Adres arama hatası. Lütfen tekrar deneyin.", type: 'error' });
     }
   };
 
   if (!center || !Number.isFinite(center[0]) || !Number.isFinite(center[1])) {
-    console.warn("🧭 Map skipped render: invalid center", center);
     return (
       <div className="flex items-center justify-center h-[calc(100vh-100px)] bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#00A690] mx-auto mb-4"></div>
-          <p className="text-gray-600">Chargement de la carte...</p>
+          <p className="text-gray-600">Harita yükleniyor...</p>
         </div>
       </div>
     );
@@ -1063,10 +1074,10 @@ export default function OffersPage() {
 
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`font-bold text-[#00A690] ${isMobile ? "text-base" : "text-lg"}`}>
-            {offer.price_after.toFixed(2)}₺
+            {formatTL(offer.price_after)}
           </span>
           <span className={`line-through text-gray-400 ${isMobile ? "text-xs" : "text-sm"}`}>
-            {offer.price_before.toFixed(2)}₺
+            {formatTL(offer.price_before)}
           </span>
           <span className="text-xs text-red-600 font-semibold bg-red-50 px-1.5 py-0.5 rounded whitespace-nowrap">
             -{getDiscountPercent(offer.price_before, offer.price_after)}%
@@ -1117,22 +1128,20 @@ export default function OffersPage() {
             }}
           />
         ) : (
-  <img
-    src="https://zhabjdyzawffsmvziojl.supabase.co/storage/v1/object/public/logos/FAVICON%20MINI%20rond%20fond%20vert.png"
-    alt="KapKurtar"
-    className={`${isMobile ? "w-10 h-10" : "w-12 h-12"} rounded-full object-cover mb-1 border-2 border-white shadow-sm`}
-    crossOrigin="anonymous"
-    referrerPolicy="no-referrer"
-  />
-)}
+          <img
+            src={MERCHANT_DEFAULT_LOGO}
+            alt="KapKurtar"
+            className={`${isMobile ? "w-10 h-10" : "w-12 h-12"} rounded-full object-cover mb-1 border-2 border-white shadow-sm`}
+          />
+        )}
 
         <p className={`font-semibold text-gray-900 ${isMobile ? "text-[10px]" : "text-xs"} line-clamp-2 mb-1 w-full px-1`}>
           {offer.merchant_name}
         </p>
 
-        {offer.merchant_city && offer.merchant_city !== "À définir" && (
+        {cleanPart(offer.merchant_city) && (
           <p className={`text-gray-600 ${isMobile ? "text-[9px]" : "text-[10px]"} line-clamp-1 w-full px-1 mb-1`}>
-            📍 {offer.merchant_city}
+            📍 {cleanPart(offer.merchant_city)}
           </p>
         )}
 
@@ -1178,8 +1187,12 @@ export default function OffersPage() {
         }
       `}</style>
 
-      <div className="flex flex-col md:flex-row h-[calc(100vh-100px)]">
-        <div className="relative flex-1 border-r border-gray-200 h-1/2 md:h-full">
+      <div
+        className={`flex flex-col md:flex-row ${
+          isNative ? "h-[calc(100vh-199px)]" : "h-[calc(100vh-100px)]"
+        }`}
+      >
+        <div className="relative flex-[3_3_0%] min-h-0 md:flex-1 border-r border-gray-200 md:h-full">
           <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
 
         {/* Slider desktop - visible seulement en mode nearby sur desktop */}
@@ -1304,8 +1317,8 @@ export default function OffersPage() {
         </div>
       </div>
 
-      <div className="hidden md:block md:w-1/2 overflow-y-auto bg-gray-50 p-4">
-        <div className="flex justify-center mb-6">
+      <div className="flex-[2_2_0%] min-h-0 md:flex-none md:w-1/2 overflow-y-auto bg-gray-50 p-4">
+        <div className="hidden md:flex justify-center mb-6">
           <div className="flex bg-gray-100 rounded-2xl overflow-hidden shadow-sm">
             <button
               className={`px-5 py-2.5 text-sm font-semibold transition-all duration-200 ${
@@ -1330,16 +1343,40 @@ export default function OffersPage() {
           </div>
         </div>
 
-        {offers.length === 0 ? (
-          <p className="text-gray-500 text-center mt-10">
-            {viewMode === "nearby"
-              ? "Bu yarıçapta teklif bulunmuyor. Mesafeyi artırmayı deneyin!"
-              : "Şu anda teklif bulunmuyor."}
-          </p>
+        {offersLoading ? (
+          <div className="text-center mt-10">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#00A690] mx-auto mb-3"></div>
+            <p className="text-gray-600">Teklifler yükleniyor...</p>
+          </div>
+        ) : offersError ? (
+          <p className="text-red-600 text-center mt-10 px-4">{offersError}</p>
+        ) : offers.length === 0 ? (
+          <div className="text-center mt-10 px-4">
+            <p className="text-gray-500 mb-3">
+              {viewMode === "nearby"
+                ? "Bu yarıçapta teklif bulunmuyor. Mesafeyi artırmayı deneyin!"
+                : "Şu anda yayında bir teklif bulunmuyor."}
+            </p>
+            <p className="text-sm text-gray-500 mb-4">
+              {showDownloadHint
+                ? "KapKurtar uygulamasını indirip bildirimleri açın: yakınınızdaki bir işletme teklif yayınladığında hemen haberdar olun."
+                : "Bildirimleri açık tutun: yakınınızdaki bir işletme teklif yayınladığında hemen haberdar olursunuz."}
+            </p>
+            {showDownloadHint && (
+              <a
+                href={GOOGLE_PLAY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-6 py-2.5 bg-[#00A690] hover:bg-[#F75C00] text-white rounded-lg font-semibold transition-colors duration-300"
+              >
+                Uygulamayı İndir
+              </a>
+            )}
+          </div>
         ) : (
-          <div className="space-y-4">
+          <div className={isSmallScreen ? "space-y-3" : "space-y-4"}>
             {offers.map((o) => (
-              <OfferCard key={o.offer_id} offer={o} />
+              <OfferCard key={o.offer_id} offer={o} isMobile={isSmallScreen} />
             ))}
           </div>
         )}
@@ -1386,11 +1423,13 @@ export function createGeoJSONCircle(
 
   ret.push(ret[0]);
 
-  return {
+  const feature: GeoJSON.Feature<GeoJSON.Polygon> = {
     type: "Feature",
+    properties: {},
     geometry: {
       type: "Polygon",
       coordinates: [ret],
     },
   };
+  return feature;
 }
