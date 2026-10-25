@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Package, Clock, ShoppingBag } from 'lucide-react';
+import { X, User, Package, Clock, ShoppingBag } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { formatTL, toTurkishError } from '../lib/errorMessages';
 
 interface ReservationDetailsModalProps {
   reservationId: string | null;
@@ -101,7 +102,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
       });
     } catch (err: any) {
       console.error('Erreur chargement détails réservation:', err);
-      setError(err.message || 'Detaylar yüklenemedi');
+      setError(toTurkishError(err, 'Detaylar yüklenemedi'));
     } finally {
       setLoading(false);
     }
@@ -217,7 +218,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-600">Birim fiyatı :</span>
                     <span className="font-bold text-[#00A690]">
-                      {details.offer.price_after.toFixed(2)} ₺
+                      {formatTL(details.offer.price_after)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -232,7 +233,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold text-gray-700">Toplam :</span>
                       <span className="font-bold text-[#00A690] text-xl">
-                        {(details.offer.price_after * details.quantity).toFixed(2)} ₺
+                        {formatTL(details.offer.price_after * details.quantity)}
                       </span>
                     </div>
                   </div>

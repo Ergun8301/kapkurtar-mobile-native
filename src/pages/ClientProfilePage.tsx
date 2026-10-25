@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Mail, Phone, Camera, Save, X, ArrowLeft } from 'lucide-react';
+import { User, Mail, Phone, Camera, Save, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabaseClient';
 import { uploadImageToSupabase } from '../lib/uploadImage';
+import { toTurkishError } from '../lib/errorMessages';
 
 interface ClientProfile {
   first_name: string | null;
@@ -104,9 +105,9 @@ const ClientProfilePage = () => {
       setProfile((prev) => (prev ? { ...prev, profile_photo_url: photoUrl } : null));
       setEditedProfile((prev) => (prev ? { ...prev, profile_photo_url: photoUrl } : null));
       setToast({ message: 'Fotoğraf güncellendi', type: 'success' });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Fotoğraf yükleme hatası:', error);
-      setToast({ message: error.message || 'Fotoğraf yükleme hatası', type: 'error' });
+      setToast({ message: toTurkishError(error, 'Fotoğraf yükleme hatası'), type: 'error' });
     } finally {
       setIsUploadingPhoto(false);
     }
@@ -135,9 +136,9 @@ const ClientProfilePage = () => {
 
       setProfile(editedProfile);
       setToast({ message: 'Profil güncellendi', type: 'success' });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Güncelleme hatası:', error);
-      setToast({ message: error.message || 'Güncelleme hatası', type: 'error' });
+      setToast({ message: toTurkishError(error, 'Güncelleme hatası'), type: 'error' });
     } finally {
       setIsSaving(false);
     }

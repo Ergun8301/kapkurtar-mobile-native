@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, User, Phone, Camera } from 'lucide-react';
+import { User, Phone, Camera } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { uploadImageToSupabase } from '../lib/uploadImage';
+import { toTurkishError } from '../lib/errorMessages';
 
 interface ProfileCompletionModalProps {
   isOpen: boolean;
@@ -62,31 +63,35 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
     setError('');
 
     try {
-      let photoUrl = null;
+      const updates: {
+        first_name: string;
+        last_name: string;
+        phone: string | null;
+        profile_photo_url?: string;
+      } = {
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
+        phone: formData.phone.trim() || null,
+      };
 
-      // Upload photo si présente
+      // Upload photo si présente (sinon on ne touche pas à la photo existante)
       if (photoFile) {
         const path = `${userId}/avatar_${Date.now()}.jpg`;
-        photoUrl = await uploadImageToSupabase(photoFile, 'profile-avatars', path);
+        updates.profile_photo_url = await uploadImageToSupabase(photoFile, 'profile-avatars', path);
       }
 
       // Mise à jour du profil
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({
-          first_name: formData.first_name.trim(),
-          last_name: formData.last_name.trim(),
-          phone: formData.phone.trim() || null,
-          profile_photo_url: photoUrl,
-        })
+        .update(updates)
         .eq('auth_id', userId);
 
       if (updateError) throw updateError;
 
       onComplete();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erreur complétion profil:', err);
-      setError(err.message || 'Kaydetme sırasında hata oluştu');
+      setError(toTurkishError(err, 'Kaydetme sırasında hata oluştu'));
     } finally {
       setIsLoading(false);
     }
@@ -206,7 +211,7 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           {/* Info */}
           <div className="bg-green-100 border border-green-300 rounded-lg p-4">
             <p className="text-sm text-[#00A690]">
-              ℹ️ Bu bilgiler rezervasyonlarınızda satıcılar tarafından görülecektir.
+              ℹ️ Bu bilgiler rezervasyonlarınızda işletmeler tarafından görülecektir.
             </p>
           </div>
 

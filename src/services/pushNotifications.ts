@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications, Token, PushNotificationSchema, ActionPerformed } from '@capacitor/push-notifications';
+import { PushNotifications, Token, ActionPerformed } from '@capacitor/push-notifications';
 import { supabase } from '../lib/supabaseClient';
 
 /**
@@ -124,7 +124,6 @@ async function saveTokenToSupabase(token: string): Promise<boolean> {
       return false;
     }
 
-    console.log('✅ Token push sauvegardé');
     return true;
   } catch (error) {
     console.error('❌ Exception sauvegarde token:', error);
@@ -146,34 +145,27 @@ export async function deactivatePushToken(): Promise<void> {
       .update({ is_active: false })
       .eq('auth_id', user.id);
 
-    console.log('✅ Token push désactivé');
   } catch (error) {
     console.error('❌ Erreur désactivation token:', error);
   }
 }
 
 /**
- * Gère une notification reçue quand l'app est ouverte
- */
-function handleNotificationReceived(notification: PushNotificationSchema): void {
-  console.log('📬 Notification reçue:', notification.title);
-}
-
-/**
  * Gère le tap sur une notification
  */
 function handleNotificationAction(action: ActionPerformed): void {
-  console.log('👆 Notification tapée:', action.notification.title);
-
   const data = action.notification.data;
+  const offerUrl = data?.offer_id
+    ? `/offers?offer_id=${encodeURIComponent(data.offer_id)}`
+    : '/offers';
 
   // Navigation basée sur le type de notification
   if (data?.type === 'offer' || data?.type === 'offer_nearby') {
-    window.location.href = '/offers';
+    window.location.href = offerUrl;
   } else if (data?.type === 'reservation') {
     window.location.href = '/merchant/dashboard';
   } else if (data?.offer_id) {
-    window.location.href = '/offers';
+    window.location.href = offerUrl;
   }
 }
 
@@ -216,7 +208,6 @@ export async function initPushNotifications(): Promise<boolean> {
 
     // Quand on reçoit le token
     await PushNotifications.addListener('registration', async (token: Token) => {
-      console.log('🔔 Token FCM reçu');
       await saveTokenToSupabase(token.value);
     });
 
@@ -226,8 +217,8 @@ export async function initPushNotifications(): Promise<boolean> {
     });
 
     // Notification reçue (app au premier plan)
-    await PushNotifications.addListener('pushNotificationReceived', (notification) => {
-      handleNotificationReceived(notification);
+    await PushNotifications.addListener('pushNotificationReceived', () => {
+      // Rien à faire ici : les notifications in-app arrivent via le realtime Supabase
     });
 
     // Tap sur notification (app en arrière-plan ou fermée)
@@ -239,7 +230,6 @@ export async function initPushNotifications(): Promise<boolean> {
     await PushNotifications.register();
 
     isInitialized = true;
-    console.log('✅ Push notifications initialisées');
     return true;
   } catch (error) {
     console.error('❌ Exception init push:', error);
@@ -256,7 +246,6 @@ export async function cleanupPushNotifications(): Promise<void> {
   try {
     await PushNotifications.removeAllListeners();
     isInitialized = false;
-    console.log('✅ Listeners push notifications nettoyés');
   } catch (error) {
     console.error('❌ Erreur nettoyage listeners:', error);
   }

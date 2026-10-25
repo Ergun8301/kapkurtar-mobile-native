@@ -37,30 +37,10 @@ export const isNativePlatform = (): boolean => {
   const platform = Capacitor.getPlatform();
   const platformIsNative = platform === 'android' || platform === 'ios';
 
-  // Méthode 3: Vérifier window.Capacitor (backup)
-  const windowCapacitor = typeof (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor !== 'undefined';
-
-  // Méthode 4: Vérifier l'origine (capacitor:// sur mobile)
-  const originIsCapacitor = window.location.origin.includes('capacitor://') ||
-                            window.location.origin.includes('localhost');
-
-  // Méthode 5: Vérifier androidBridge directement
+  // Méthode 3: Vérifier androidBridge directement
   const hasAndroidBridge = typeof (window as unknown as { androidBridge?: unknown }).androidBridge !== 'undefined';
 
-  // Log diagnostic pour debug
-  console.log('🔍 [Platform Detection]', {
-    capacitorNative,
-    platform,
-    platformIsNative,
-    windowCapacitor,
-    originIsCapacitor,
-    hasAndroidBridge,
-    userAgent: navigator.userAgent,
-    origin: window.location.origin
-  });
-
   // Retourner true si AU MOINS UNE méthode indique native
-  // Priorité à platformIsNative car plus fiable
   return platformIsNative || capacitorNative || hasAndroidBridge;
 };
 

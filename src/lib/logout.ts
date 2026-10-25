@@ -5,11 +5,15 @@ import { deactivatePushToken, cleanupPushNotifications } from '../services/pushN
  * Déconnexion complète avec redirection (pour les composants React avec navigate)
  */
 export async function logoutUser(navigate: (to: string) => void) {
+  // 0️⃣ Désactiver le token push avant la déconnexion (un échec ne doit pas bloquer le signOut)
   try {
-    // 0️⃣ Désactiver le token push avant la déconnexion
     await deactivatePushToken();
     await cleanupPushNotifications();
+  } catch (err) {
+    console.warn('⚠️ Erreur push lors de la déconnexion (ignorée) :', err);
+  }
 
+  try {
     // 1️⃣ Détruit la session active
     await supabase.auth.signOut();
   } catch (err) {
@@ -33,11 +37,15 @@ export async function logoutUser(navigate: (to: string) => void) {
  * Variante sans navigation (utile pour les hooks ou stores)
  */
 export async function logoutNoNav() {
+  // Désactiver le token push avant la déconnexion (un échec ne doit pas bloquer le signOut)
   try {
-    // Désactiver le token push avant la déconnexion
     await deactivatePushToken();
     await cleanupPushNotifications();
+  } catch (err) {
+    console.warn('⚠️ Erreur push lors de la déconnexion (ignorée) :', err);
+  }
 
+  try {
     await supabase.auth.signOut();
   } catch (err) {
     console.warn('⚠️ Erreur Supabase lors du signOut (ignorée) :', err);

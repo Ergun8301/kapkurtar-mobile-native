@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Mail, Lock, ArrowLeft, Store } from "lucide-react";
-import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
+import { Eye, EyeOff, Mail, Lock, ArrowLeft } from "lucide-react";
+import { getNativeGoogleIdToken } from "../lib/googleNativeAuth";
 import { supabase } from "../lib/supabaseClient";
 import { useAuthFlow } from "../hooks/useAuthFlow";
 import { getRedirectUrl, isNativePlatform } from "../lib/appConfig";
+import { toTurkishError } from "../lib/errorMessages";
 
 type AuthMode = "login" | "register";
 
@@ -23,49 +24,20 @@ const MerchantAuthPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const redirectHoldRef = useRef(false);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
 
   // ---------- Redirection ----------
-  const goToMerchantHome = async () => {
-    try {
-      if (!user) return navigate("/merchant/dashboard");
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("auth_id", user.id)
-        .maybeSingle();
-
-      if (prof?.id) {
-        const { data: merch } = await supabase
-          .from("merchants")
-          .select("id")
-          .eq("profile_id", prof.id)
-          .maybeSingle();
-
-        if (merch?.id) {
-          const { data: offers } = await supabase
-            .from("offers")
-            .select("id")
-            .eq("merchant_id", merch.id)
-            .limit(1);
-
-          if (!offers || offers.length === 0) {
-            navigate("/merchant/dashboard");
-            return;
-          }
-        }
-      }
-    } catch (err) {
-      console.warn("Erreur redirection merchant:", err);
-    }
+  const goToMerchantHome = () => {
     navigate("/merchant/dashboard");
   };
 
   useEffect(() => {
-    if (!initialized || !user) return;
+    if (!initialized || !user || redirectHoldRef.current) return;
     if (role === "merchant") goToMerchantHome();
     else if (role === "client") navigate("/offers");
   }, [initialized, user, role, profile, navigate]);
@@ -96,7 +68,7 @@ const MerchantAuthPage = () => {
       } else {
         // ----------- REGISTER -----------
         if (formData.password.length < 6)
-          throw new Error("Şifre en az 6 karakter içermelidir");
+          throw new Error("Şifre en az 6 karakter içermelidir.");
 
         // 🔹 Crée un flow_state avant signup
         const { data: flow, error: flowError } = await supabase
@@ -106,7 +78,7 @@ const MerchantAuthPage = () => {
           .single();
 
         if (flowError || !flow)
-          throw flowError || new Error("Flow state oluşturulamadı");
+          throw flowError || new Error("Kayıt başlatılamadı. Lütfen tekrar deneyin.");
 
         const { data: signUpData, error: signUpError } =
           await supabase.auth.signUp({
@@ -121,14 +93,14 @@ const MerchantAuthPage = () => {
           });
         if (signUpError) throw signUpError;
 
-        // Email confirmation is disabled - redirect directly
+        // Confirmation email désactivée : redirection directe
         if (signUpData.user) {
           await refetchProfile();
           await goToMerchantHome();
         }
       }
     } catch (err) {
-      setError((err as Error).message);
+      setError(toTurkishError(err));
     } finally {
       setIsLoading(false);
     }
@@ -138,34 +110,22 @@ const MerchantAuthPage = () => {
   const handleGoogleAuth = async () => {
     setIsLoading(true);
     setError("");
+    setInfo("");
 
     try {
       const isNative = isNativePlatform();
-      console.log("🔍 [OAuth Debug] ========== GOOGLE AUTH MERCHANT START ==========");
-      console.log("🔍 [OAuth Debug] isNativePlatform():", isNative);
 
       if (isNative) {
-        // 📱 Mode NATIVE: Utiliser Google Auth plugin (Google Play Services)
-        console.log("🔍 [OAuth Debug] Mode NATIVE - GoogleAuth.signIn()");
+        // 📱 Mode NATIVE: connexion Google native
 
-        // Initialiser le plugin Google Auth
-        await GoogleAuth.initialize({
-          clientId: "545174199519-ld327isies201hffeb16ae03hidn0fre.apps.googleusercontent.com",
-          scopes: ["profile", "email"],
-          grantOfflineAccess: true,
-        });
-        console.log("🔍 [OAuth Debug] GoogleAuth.initialize() OK");
-
-        // Connexion Google native via Google Play Services
-        const googleUser = await GoogleAuth.signIn();
-        console.log("🔍 [OAuth Debug] GoogleAuth.signIn() OK:", googleUser.email);
-
-        // Récupérer l'idToken pour Supabase
-        const idToken = googleUser.authentication.idToken;
+        // Connexion Google native (Credential Manager)
+        const idToken = await getNativeGoogleIdToken();
         if (!idToken) {
-          throw new Error("Impossible de récupérer le token Google");
+          throw new Error("Google hesabı doğrulanamadı. Lütfen tekrar deneyin.");
         }
-        console.log("🔍 [OAuth Debug] idToken obtenu, longueur:", idToken.length);
+
+        // Bloque la redirection automatique pendant la vérification du profil
+        redirectHoldRef.current = true;
 
         // Authentifier avec Supabase via idToken
         const { data, error } = await supabase.auth.signInWithIdToken({
@@ -173,36 +133,50 @@ const MerchantAuthPage = () => {
           token: idToken,
         });
 
-        if (error) {
-          console.error("🔍 [OAuth Debug] Erreur signInWithIdToken:", error);
-          throw error;
-        }
+        if (error) throw error;
 
         if (data.user) {
-          console.log("✅ [OAuth Debug] Supabase signInWithIdToken OK:", data.user.email);
+          // Ne jamais écraser le rôle d'un compte existant
+          const { data: existingProfile } = await supabase
+            .from("profiles")
+            .select("id, role")
+            .eq("auth_id", data.user.id)
+            .maybeSingle();
 
-          // Créer/mettre à jour le profil avec le rôle MERCHANT
-          const { error: profileError } = await supabase.from("profiles").upsert(
-            {
+          // Compte créé à l'instant : le profil éventuel vient d'être généré
+          // automatiquement (trigger / ensure_profile_exists), il n'a pas encore de vrai rôle
+          const createdAt = new Date(data.user.created_at).getTime();
+          const lastSignIn = data.user.last_sign_in_at
+            ? new Date(data.user.last_sign_in_at).getTime()
+            : createdAt;
+          const isBrandNewAccount = Math.abs(lastSignIn - createdAt) < 60_000;
+
+          if (!existingProfile) {
+            const { error: profileError } = await supabase.from("profiles").insert({
               auth_id: data.user.id,
               email: data.user.email,
               role: "merchant",
-            },
-            { onConflict: "auth_id" }
-          );
-
-          if (profileError) {
-            console.warn("⚠️ [OAuth Debug] Erreur profil:", profileError.message);
+            });
+            if (profileError) console.warn("Profil marchand non créé:", profileError.message);
+          } else if (isBrandNewAccount && existingProfile.role !== "merchant") {
+            const { error: profileError } = await supabase
+              .from("profiles")
+              .update({ role: "merchant" })
+              .eq("id", existingProfile.id);
+            if (profileError) console.warn("Rôle marchand non enregistré:", profileError.message);
+          } else if (existingProfile.role === "client") {
+            // Compte client existant : on ne le transforme pas en marchand
+            setInfo("Bu Google hesabı bir müşteri hesabına bağlı. Teklifler sayfasına yönlendiriliyorsunuz...");
+            await refetchProfile();
+            setTimeout(() => navigate("/offers", { replace: true }), 2500);
+            return;
           }
 
           await refetchProfile();
-          await goToMerchantHome();
+          goToMerchantHome();
         }
       } else {
         // 🌐 Web : comportement OAuth standard avec flow_state
-        console.log("🔍 [OAuth Debug] Mode WEB - flow OAuth standard");
-
-        // 🔹 Crée un flow_state avec rôle marchand avant OAuth (uniquement pour le web)
         const { data: flow, error: flowError } = await supabase
           .from("flow_states")
           .insert({ desired_role: "merchant" })
@@ -210,9 +184,7 @@ const MerchantAuthPage = () => {
           .single();
 
         if (flowError || !flow)
-          throw flowError || new Error("Flow state oluşturulamadı");
-
-        console.log("🎟️ Flow token créé :", flow.token);
+          throw flowError || new Error("Google ile giriş başlatılamadı. Lütfen tekrar deneyin.");
 
         const redirectUrl = getRedirectUrl(`/auth/callback?role=merchant&flow_token=${flow.token}`);
 
@@ -226,8 +198,9 @@ const MerchantAuthPage = () => {
         if (error) throw error;
       }
     } catch (err) {
-      console.error("🔍 [OAuth Debug] ERREUR:", err);
-      setError((err as Error).message);
+      redirectHoldRef.current = false;
+      console.error("Erreur Google Auth marchand:", err);
+      setError(toTurkishError(err));
     } finally {
       setIsLoading(false);
     }
@@ -295,6 +268,12 @@ const MerchantAuthPage = () => {
             {error && (
               <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
                 <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+
+            {info && (
+              <div className="p-4 bg-blue-50 border-l-4 border-blue-500 rounded-lg">
+                <p className="text-sm text-blue-700">{info}</p>
               </div>
             )}
 
