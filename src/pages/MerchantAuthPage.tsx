@@ -209,27 +209,27 @@ const MerchantAuthPage = () => {
   // ---------- Loader ----------
   if (authLoading && !initialized) {
     return (
-      <div className="min-h-screen bg-[#FAFAF5] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#FF6B35]"></div>
+      <div className="min-h-screen bg-kk-paper flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-kk-mint border-t-transparent"></div>
       </div>
     );
   }
 
   // ---------- UI ----------
   return (
-    <div className="h-full overflow-hidden bg-[#FAFAF5] flex flex-col">
+    <div className="h-full overflow-hidden bg-kk-paper flex flex-col">
       <div className="flex-1 flex items-center justify-center py-4 px-4">
         <div className="w-full max-w-md space-y-4">
           <button
             onClick={() => navigate("/")}
-            className="inline-flex items-center text-[#FF6B35] hover:text-[#e55a28] font-medium"
+            className="inline-flex items-center text-kk-night hover:text-kk-mint-text font-semibold bg-white rounded-full border border-black/10 shadow-sm px-3 py-1.5 text-sm"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Geri
           </button>
 
           <div className="text-center mb-4">
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">
+            <h1 className="text-2xl font-display font-extrabold tracking-tight text-kk-night mb-1">
               {mode === "login"
                 ? "İşletme Girişi"
                 : "İşletme Kaydı"}
@@ -241,24 +241,24 @@ const MerchantAuthPage = () => {
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-xl p-5 space-y-4">
-            <div className="flex bg-gray-100 rounded-2xl p-1">
+          <div className="kk-card p-5 space-y-4">
+            <div className="flex bg-kk-paper border border-black/5 rounded-full p-1">
               <button
                 onClick={() => setMode("login")}
-                className={`flex-1 py-3 font-semibold rounded-xl ${
+                className={`flex-1 py-3 font-semibold rounded-full transition-all ${
                   mode === "login"
-                    ? "bg-white text-[#FF6B35] shadow-md"
-                    : "text-gray-500"
+                    ? "bg-kk-night text-white shadow-md"
+                    : "text-gray-600 hover:text-kk-night"
                 }`}
               >
                 Giriş
               </button>
               <button
                 onClick={() => setMode("register")}
-                className={`flex-1 py-3 font-semibold rounded-xl ${
+                className={`flex-1 py-3 font-semibold rounded-full transition-all ${
                   mode === "register"
-                    ? "bg-white text-[#FF6B35] shadow-md"
-                    : "text-gray-500"
+                    ? "bg-kk-night text-white shadow-md"
+                    : "text-gray-600 hover:text-kk-night"
                 }`}
               >
                 Kayıt
@@ -266,20 +266,20 @@ const MerchantAuthPage = () => {
             </div>
 
             {error && (
-              <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
-                <p className="text-sm text-red-700">{error}</p>
+              <div className="p-4 bg-red-50 border-l-4 border-kk-coral rounded-2xl">
+                <p className="text-sm text-kk-coral-text">{error}</p>
               </div>
             )}
 
             {info && (
-              <div className="p-4 bg-blue-50 border-l-4 border-blue-500 rounded-lg">
-                <p className="text-sm text-blue-700">{info}</p>
+              <div className="p-4 bg-kk-mint/10 border-l-4 border-kk-mint rounded-2xl">
+                <p className="text-sm text-kk-mint-text">{info}</p>
               </div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className="block text-sm font-semibold text-kk-night mb-2">
                   E-posta
                 </label>
                 <div className="relative">
@@ -289,7 +289,7 @@ const MerchantAuthPage = () => {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    className="w-full pl-12 pr-4 py-4 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#FF6B35] focus:border-transparent text-base"
+                    className="kk-input pl-12 pr-4 py-4 text-base"
                     placeholder="isletme@ornek.com"
                     required
                   />
@@ -297,7 +297,7 @@ const MerchantAuthPage = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className="block text-sm font-semibold text-kk-night mb-2">
                   Şifre
                 </label>
                 <div className="relative">
@@ -307,7 +307,7 @@ const MerchantAuthPage = () => {
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
-                    className="w-full pl-12 pr-14 py-4 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#FF6B35] focus:border-transparent text-base"
+                    className="kk-input pl-12 pr-14 py-4 text-base"
                     placeholder="••••••••"
                     required
                     minLength={6}
@@ -315,7 +315,7 @@ const MerchantAuthPage = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-kk-night"
                   >
                     {showPassword ? (
                       <EyeOff className="w-5 h-5" />
@@ -329,7 +329,7 @@ const MerchantAuthPage = () => {
                     <button
                       type="button"
                       onClick={() => navigate("/merchant/forgot-password")}
-                      className="text-sm text-[#FF6B35] hover:text-[#e55a28] font-medium"
+                      className="text-sm text-kk-mint-text hover:underline font-semibold"
                     >
                       Şifremi unuttum?
                     </button>
@@ -340,11 +340,11 @@ const MerchantAuthPage = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-[#FF6B35] text-white py-4 rounded-xl font-bold text-lg hover:bg-[#e55a28] transition-all shadow-lg hover:shadow-xl disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="w-full kk-btn-primary py-4 text-lg"
               >
                 {isLoading ? (
                   <div className="flex items-center justify-center">
-                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    <div className="w-6 h-6 border-2 border-kk-night border-t-transparent rounded-full animate-spin mr-2"></div>
                     Yükleniyor...
                   </div>
                 ) : mode === "login" ? (
@@ -357,16 +357,16 @@ const MerchantAuthPage = () => {
 
             {/* Séparateur */}
             <div className="flex items-center gap-2 my-2">
-              <div className="flex-1 h-px bg-gray-300"></div>
-              <span className="text-gray-500 text-sm">veya</span>
-              <div className="flex-1 h-px bg-gray-300"></div>
+              <div className="flex-1 h-px bg-black/10"></div>
+              <span className="text-gray-600 text-sm">veya</span>
+              <div className="flex-1 h-px bg-black/10"></div>
             </div>
 
             {/* Bouton Google */}
             <button
               type="button"
               onClick={handleGoogleAuth}
-              className="w-full py-3 border border-gray-300 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50 transition-all"
+              className="w-full py-3 bg-white border border-black/15 rounded-full flex items-center justify-center gap-2 hover:bg-black/5 transition-all text-kk-night"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -374,7 +374,7 @@ const MerchantAuthPage = () => {
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
               </svg>
-              <span className="font-medium">Google</span>
+              <span className="font-semibold">Google</span>
             </button>
 
           </div>

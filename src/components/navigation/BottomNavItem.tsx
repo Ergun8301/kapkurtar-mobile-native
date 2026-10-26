@@ -21,23 +21,31 @@ const BottomNavItem: React.FC<BottomNavItemProps> = ({
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center justify-center flex-1 py-2 transition-colors duration-200 focus:outline-none active:bg-transparent ${
-        isActive ? "text-[#00A690]" : "text-[#00615F]"
+      className={`flex items-center justify-center min-w-0 h-full transition-all duration-200 focus:outline-none active:bg-transparent ${
+        isActive ? "flex-[2]" : "flex-1"
       }`}
       style={{
         WebkitTapHighlightColor: "transparent",
         outline: "none",
       }}
     >
-      <Icon
-        className={`w-6 h-6 ${isActive ? "stroke-[2.5px]" : "stroke-[1.5px]"}`}
-      />
       <span
-        className={`text-xs mt-1 ${
-          isActive ? "font-semibold" : "font-normal"
+        className={`flex items-center justify-center min-w-0 rounded-full transition-all duration-200 ${
+          isActive
+            ? "gap-1.5 bg-kk-lime text-kk-night px-4 py-2.5"
+            : "text-white/70 p-2.5"
         }`}
       >
-        {label}
+        <Icon
+          className={`w-6 h-6 flex-shrink-0 ${isActive ? "stroke-[2.5px]" : "stroke-[1.75px]"}`}
+        />
+        <span
+          className={`text-xs ${
+            isActive ? "font-display font-extrabold truncate" : "sr-only"
+          }`}
+        >
+          {label}
+        </span>
       </span>
     </button>
   );
