@@ -104,13 +104,15 @@ const BottomNav: React.FC = () => {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50"
+      className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none"
       style={{
         paddingBottom: "45px", // Safe area bottom pour Android + espace boutons système
-        boxShadow: "0 -2px 10px rgba(0, 0, 0, 0.1)",
       }}
     >
-      <div className="flex items-center justify-around h-[60px]">
+      <div
+        className="pointer-events-auto mx-4 flex items-center justify-around gap-1 h-[64px] px-2 rounded-full bg-kk-surface/90 backdrop-blur-md border border-white/10"
+        style={{ boxShadow: "0 12px 32px rgba(13, 14, 18, 0.35)" }}
+      >
         {navItems.map((item, index) => (
           <BottomNavItem
             key={index}
